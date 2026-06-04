@@ -364,6 +364,10 @@ async def clear_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ─── Entry point ──────────────────────────────────────────────────────────────
 
 def main():
+    # Python 3.10+ no longer auto-creates an event loop — set one explicitly
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+
     init_db()
 
     app = Application.builder().token(BOT_TOKEN).build()

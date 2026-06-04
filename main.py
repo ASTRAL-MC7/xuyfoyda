@@ -63,8 +63,7 @@ def init_db():
 
 # ─── DB helpers ───────────────────────────────────────────────────────────────
 
-def upsert_user(telegram_id: int, username: Optional[str],
-                first_name: str, invited_by: Optional[int] = None):
+def upsert_user(telegram_id, username, first_name, invited_by=None):
     existing = _users.find_one({"telegram_id": telegram_id})
     if existing:
         update = {"$set": {"username": username, "first_name": first_name}}
@@ -83,26 +82,16 @@ def upsert_user(telegram_id: int, username: Optional[str],
             "join_link_sent": False,
         })
 
-
-def get_user(telegram_id: int) -> Optional[dict]:
+def get_user(telegram_id):
     return _users.find_one({"telegram_id": telegram_id})
 
+def set_verified(telegram_id):
+    _users.update_one({"telegram_id": telegram_id}, {"$set": {"is_verified": True}})
 
-def set_verified(telegram_id: int):
-    _users.update_one(
-        {"telegram_id": telegram_id},
-        {"$set": {"is_verified": True}}
-    )
+def set_join_link_sent(telegram_id):
+    _users.update_one({"telegram_id": telegram_id}, {"$set": {"join_link_sent": True}})
 
-
-def set_join_link_sent(telegram_id: int):
-    _users.update_one(
-        {"telegram_id": telegram_id},
-        {"$set": {"join_link_sent": True}}
-    )
-
-
-def increment_referral_count(telegram_id: int) -> int:
+def increment_referral_count(telegram_id):
     result = _users.find_one_and_update(
         {"telegram_id": telegram_id},
         {"$inc": {"referral_count": 1}},
@@ -110,87 +99,70 @@ def increment_referral_count(telegram_id: int) -> int:
     )
     return result["referral_count"] if result else 0
 
-
-def record_join_request(user_id: int, chat_id: int):
+def record_join_request(user_id, chat_id):
     try:
         _requests.insert_one({
-            "user_id":      user_id,
-            "chat_id":      chat_id,
+            "user_id": user_id,
+            "chat_id": chat_id,
             "requested_at": datetime.now(timezone.utc),
         })
     except Exception:
         pass
 
-
-def has_join_request(user_id: int, chat_id: int) -> bool:
+def has_join_request(user_id, chat_id):
     return _requests.find_one({"user_id": user_id, "chat_id": chat_id}) is not None
 
-
-def get_total_user_count() -> int:
+def get_total_user_count():
     return _users.count_documents({})
 
-
-def get_all_user_ids() -> list:
+def get_all_user_ids():
     return [u["telegram_id"] for u in _users.find({}, {"telegram_id": 1})]
 
-
-def clear_all_referrals() -> int:
+def clear_all_referrals():
     total = _users.count_documents({})
     _requests.delete_many({})
     _users.update_many({}, {"$set": {
-        "is_verified":    False,
-        "referral_count": 0,
-        "join_link_sent": False,
-        "invited_by":     None,
+        "is_verified": False, "referral_count": 0,
+        "join_link_sent": False, "invited_by": None,
     }})
     return total
 
 
 # ─── Bot helpers ──────────────────────────────────────────────────────────────
 
-def ref_link(user_id: int) -> str:
+def ref_link(user_id):
     return f"https://t.me/{BOT_USERNAME}?start=ref_{user_id}"
 
-
-def subscription_keyboard() -> InlineKeyboardMarkup:
+def subscription_keyboard():
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("📢 1-Kanal | @ucplanet",
-                              url="https://t.me/ucplanet")],
-        [InlineKeyboardButton("🔐 2-Kanal | Qo'shilish so'rovi yuboring",
-                              url=CHANNEL_2_LINK)],
-        [InlineKeyboardButton("🔐 3-Kanal | Qo'shilish so'rovi yuboring",
-                              url=CHANNEL_3_LINK)],
+        [InlineKeyboardButton("📢 1-Kanal | @ucplanet", url="https://t.me/ucplanet")],
+        [InlineKeyboardButton("🔐 2-Kanal | Qo'shilish so'rovi yuboring", url=CHANNEL_2_LINK)],
+        [InlineKeyboardButton("🔐 3-Kanal | Qo'shilish so'rovi yuboring", url=CHANNEL_3_LINK)],
         [InlineKeyboardButton("✅ Tekshirish", callback_data="check_subs")],
     ])
 
-
-async def is_channel1_member(bot, user_id: int) -> bool:
+async def is_channel1_member(bot, user_id):
     try:
         member = await bot.get_chat_member(CHANNEL_1_USERNAME, user_id)
         return member.status in ("member", "administrator", "creator")
     except Exception:
         return False
 
-
-async def send_prize_link(bot, user_id: int):
+async def send_prize_link(bot, user_id):
     try:
         link = await bot.create_chat_invite_link(
-            PRIZE_CHANNEL_ID,
-            member_limit=1,
-            name=f"winner_{user_id}",
+            PRIZE_CHANNEL_ID, member_limit=1, name=f"winner_{user_id}"
         )
         set_join_link_sent(user_id)
         await bot.send_message(
             user_id,
-            f"🏆 <b>TABRIKLAYMIZ!</b> Siz {REQUIRED_INVITES} ta do'stingizni "
-            f"taklif qildingiz!\n\n"
+            f"🏆 <b>TABRIKLAYMIZ!</b> Siz {REQUIRED_INVITES} ta do'stingizni taklif qildingiz!\n\n"
             f"🎁 <b>Maxsus kanalga kirish uchun sizning 1 martalik havolangiz:</b>\n\n"
             f"🔗 {link.invite_link}\n\n"
             f"⚠️ <i>Bu havola faqat 1 marta ishlaydi — hech kim bilan ulashmang!</i>\n"
             f"🎮 <b>Yaxshi o'yin!</b> 💎",
             parse_mode="HTML",
         )
-        logger.info(f"Prize link sent → user {user_id}")
     except Exception as e:
         logger.error(f"send_prize_link failed for {user_id}: {e}")
 
@@ -218,7 +190,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=subscription_keyboard(),
     )
 
-
 async def check_subs(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer("🔍 Tekshirilmoqda...")
@@ -228,11 +199,10 @@ async def check_subs(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.message.reply_text("❗ Iltimos, /start buyrug'ini yuboring.")
         return
     if db_user["is_verified"]:
-        count = db_user["referral_count"]
         await query.message.reply_html(
             f"✅ <b>Siz allaqachon ro'yxatdan o'tgansiz!</b>\n\n"
             f"🔗 Sizning shaxsiy havolangiz:\n{ref_link(user.id)}\n\n"
-            f"👥 Taklif qilganlar: <b>{count}</b> / {REQUIRED_INVITES}"
+            f"👥 Taklif qilganlar: <b>{db_user['referral_count']}</b> / {REQUIRED_INVITES}"
         )
         return
     ch1ok = await is_channel1_member(context.bot, user.id)
@@ -247,9 +217,7 @@ async def check_subs(update: Update, context: ContextTypes.DEFAULT_TYPE):
         lines.append(("✅" if ch3ok else "❌") + " 3-Kanal — " +
                      ("So'rov yuborgansiz" if ch3ok else "So'rov yubormagansiz"))
         lines.append("\n📌 <i>Barcha amallarni bajaring va qayta tekshiring.</i>")
-        await query.message.reply_html(
-            "\n".join(lines), reply_markup=subscription_keyboard()
-        )
+        await query.message.reply_html("\n".join(lines), reply_markup=subscription_keyboard())
         return
     set_verified(user.id)
     inviter_id = db_user.get("invited_by")
@@ -260,8 +228,7 @@ async def check_subs(update: Update, context: ContextTypes.DEFAULT_TYPE):
             try:
                 await context.bot.send_message(
                     inviter_id,
-                    f"👥 Do'stingiz tasdiqdan o'tdi! "
-                    f"Taklif: <b>{new_count}</b> / {REQUIRED_INVITES}",
+                    f"👥 Do'stingiz tasdiqdan o'tdi! Taklif: <b>{new_count}</b> / {REQUIRED_INVITES}",
                     parse_mode="HTML",
                 )
             except Exception:
@@ -270,20 +237,16 @@ async def check_subs(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await send_prize_link(context.bot, inviter_id)
     await query.message.reply_html(
         f"🎉 <b>BARAKALLA! Barcha shartlarni bajardingiz!</b>\n\n"
-        f"🤝 Konkursda <b>g'olib</b> bo'lish uchun "
-        f"<b>{REQUIRED_INVITES} ta do'stingizni</b> taklif qiling!\n\n"
+        f"🤝 Konkursda <b>g'olib</b> bo'lish uchun <b>{REQUIRED_INVITES} ta do'stingizni</b> taklif qiling!\n\n"
         f"🔗 <b>Sizning shaxsiy havolangiz:</b>\n{ref_link(user.id)}\n\n"
         f"💡 <i>Bu havolani do'stlaringizga yuboring. Ular botni ishga tushirib, "
         f"kanallarni tasdiqlashlari bilanoq siz mukofot olasiz!</i>"
     )
 
-
 async def handle_join_request(update: Update, context: ContextTypes.DEFAULT_TYPE):
     req = update.chat_join_request
     if req.chat.id in (CHANNEL_2_ID, CHANNEL_3_ID):
         record_join_request(req.from_user.id, req.chat.id)
-        logger.info(f"Join request: user={req.from_user.id} chat={req.chat.id}")
-
 
 async def odam_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID:
@@ -293,7 +256,6 @@ async def odam_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"📊 Jami botni boshlagan: <b>{get_total_user_count()}</b> ta foydalanuvchi"
     )
 
-
 async def xabar_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID:
         return
@@ -302,25 +264,18 @@ async def xabar_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❗ Xabar matni kiriting: /xabar <matn>")
         return
     user_ids = get_all_user_ids()
-    await update.message.reply_text(
-        f"📤 Xabar yuborilmoqda... {len(user_ids)} ta foydalanuvchiga"
-    )
+    await update.message.reply_text(f"📤 Xabar yuborilmoqda... {len(user_ids)} ta foydalanuvchiga")
     sent = failed = 0
     for uid in user_ids:
         try:
-            await context.bot.send_message(
-                uid, f"📣 <b>E'lon</b>\n\n{text}", parse_mode="HTML"
-            )
+            await context.bot.send_message(uid, f"📣 <b>E'lon</b>\n\n{text}", parse_mode="HTML")
             sent += 1
         except Exception:
             failed += 1
         await asyncio.sleep(0.035)
     await update.message.reply_html(
-        f"✅ <b>Xabar yuborildi!</b>\n\n"
-        f"📨 Muvaffaqiyatli: <b>{sent}</b>\n"
-        f"❌ Yuborilmadi: <b>{failed}</b>"
+        f"✅ <b>Xabar yuborildi!</b>\n\n📨 Muvaffaqiyatli: <b>{sent}</b>\n❌ Yuborilmadi: <b>{failed}</b>"
     )
-
 
 async def clear_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID:
@@ -329,31 +284,31 @@ async def clear_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     total = clear_all_referrals()
     await update.message.reply_html(
         f"✅ <b>Tozalash tugadi!</b>\n\n"
-        f"🗑 Barcha referrallar, tasdiqlashlar nolga qaytarildi.\n"
+        f"🗑 Barcha referrallar nolga qaytarildi.\n"
         f"👤 Ta'sirlangan foydalanuvchilar: <b>{total}</b>"
     )
 
 
-# ─── Health check server ───────────────────────────────────────────────────────
+# ─── Health check ─────────────────────────────────────────────────────────────
 
-async def health_handler(request: aiohttp.web.Request) -> aiohttp.web.Response:
+async def health_handler(request):
     return aiohttp.web.Response(text="BOT IS RUNNING POLLING")
 
 
 # ─── Entry point ──────────────────────────────────────────────────────────────
 
 async def run():
-    # 1) Health-check HTTP server (UptimeRobot pings this)
+    # Health-check HTTP server
     web_app = aiohttp.web.Application()
     web_app.router.add_get("/", health_handler)
-    web_app.router.add_get("/{tail:.*}", health_handler)  # catch all paths
+    web_app.router.add_get("/{tail:.*}", health_handler)
     runner = aiohttp.web.AppRunner(web_app)
     await runner.setup()
     site = aiohttp.web.TCPSite(runner, "0.0.0.0", PORT)
     await site.start()
-    logger.info(f"Health server listening on port {PORT}")
+    logger.info(f"Health server on port {PORT}")
 
-    # 2) Telegram bot in polling mode
+    # Telegram bot (polling)
     app = Application.builder().token(BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CallbackQueryHandler(check_subs, pattern="^check_subs$"))
@@ -365,8 +320,8 @@ async def run():
     async with app:
         await app.start()
         await app.updater.start_polling(drop_pending_updates=True)
-        logger.info("Bot polling started — waiting for updates...")
-        await asyncio.Event().wait()   # run forever
+        logger.info("Bot polling started")
+        await asyncio.Event().wait()  # run forever
 
 
 def main():
